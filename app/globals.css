@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
+  --background: #F1811F;
   --foreground: #171717;
 }
 
@@ -10,12 +10,20 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-league: var(--font-league-gothic);
+  --font-dela: var(--font-dela-gothic-one);
+
+  --color-musubi-orange: #f1811f;
+  --color-musubi-maroon: #6d3131;
+  --color-musubi-green: #133619;
+  --color-musubi-brown: #583c23;
+  --color-musubi-gold: #f5da6f;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --background: #F1811F;
+    --foreground: #171717;
   }
 }
 
