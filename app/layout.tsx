@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono, League_Gothic, Dela_Gothic_One } from "next/font/google";
+import Nav from "./components/Nav";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -39,7 +40,10 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} ${leagueGothic.variable} ${delaGothicOne.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col lg:flex-row">
+        <Nav />
+        <div className="min-w-0 flex-1">{children}</div>
+      </body>
     </html>
   );
 }
