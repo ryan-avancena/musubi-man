@@ -30,6 +30,9 @@ export default function MusubiWheel() {
   const wheelRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const selected = MENU_ITEMS[selectedIndex];
+  // Mobile and wide desktop both render a half-wheel dome anchored to the
+  // bottom of its box; only the mid-size (tablet) layout keeps a full ring.
+  const isHalfWheel = isMobile || isWide;
 
   useEffect(() => {
     const update = () => {
@@ -154,93 +157,67 @@ export default function MusubiWheel() {
         </p>
       </div>
 
-      {/* The wheel, plus a small cart summary beside it on wide desktop */}
-      <div className="flex flex-col items-center gap-6 lg:flex-row lg:items-center lg:gap-10">
+      {/* The wheel */}
       <div className="flex flex-col items-center lg:items-start">
         <div
           ref={wheelRef}
           role="radiogroup"
           aria-label="Choose a musubi"
           onKeyDown={handleKeyDown}
-          className={`relative w-full max-w-[440px] lg:max-w-[280px] ${
-            isMobile ? "h-[230px] mx-auto" : "h-[340px] mx-auto sm:h-[420px] lg:mx-0"
+          className={`relative w-full max-w-[440px] ${
+            isMobile
+              ? "h-[230px] mx-auto"
+              : "h-[340px] mx-auto sm:h-[420px] lg:h-[320px] lg:mx-0"
           }`}
         >
-          {/* decorative ring — a half dome on mobile, a half dome opening
-              right on wide desktop (facing the panel), a full ring otherwise */}
+          {/* decorative ring — a half dome anchored to the bottom on mobile
+              and wide desktop, a full ring on tablet-stacked layouts */}
           <div
             aria-hidden="true"
             className={
-              isMobile
+              isHalfWheel
                 ? "pointer-events-none absolute left-1/2 top-full rounded-t-full border-x border-t border-dashed border-musubi-maroon/15"
-                : isWide
-                  ? "pointer-events-none absolute left-full top-1/2 rounded-l-full border-y border-l border-dashed border-musubi-maroon/15"
-                  : "pointer-events-none absolute left-1/2 top-1/2 rounded-full border border-dashed border-musubi-maroon/15"
+                : "pointer-events-none absolute left-1/2 top-1/2 rounded-full border border-dashed border-musubi-maroon/15"
             }
             style={
-              isMobile
+              isHalfWheel
                 ? {
                     width: radius * 2,
                     height: radius,
                     transform: "translate(-50%, -100%)",
                   }
-                : isWide
-                  ? {
-                      width: radius,
-                      height: radius * 2,
-                      transform: "translate(-100%, -50%)",
-                    }
-                  : {
-                      width: radius * 2,
-                      height: radius * 2,
-                      transform: "translate(-50%, -50%)",
-                    }
+                : {
+                    width: radius * 2,
+                    height: radius * 2,
+                    transform: "translate(-50%, -50%)",
+                  }
             }
           />
 
-          {/* pointer marking the selected slot — above the ring normally,
-              to the left of it on wide screens where the ring faces the panel */}
+          {/* pointer marking the selected slot */}
           <div
             aria-hidden="true"
-            className="pointer-events-none absolute flex text-musubi-maroon"
-            style={
-              isWide
-                ? {
-                    top: "50%",
-                    left: `calc(100% - ${radius + 80}px)`,
-                    transform: "translate(-50%, -50%)",
-                  }
-                : {
-                    top: isMobile
-                      ? `calc(100% - ${radius + 100}px)`
-                      : `calc(50% - ${radius + 100}px)`,
-                    left: "50%",
-                    transform: "translate(-50%, 0)",
-                  }
-            }
+            className="pointer-events-none absolute left-1/2 flex flex-col items-center text-musubi-maroon"
+            style={{
+              top: isHalfWheel
+                ? `calc(100% - ${radius + 100}px)`
+                : `calc(50% - ${radius + 100}px)`,
+              transform: "translate(-50%, 0)",
+            }}
           >
-            <span
-              className={
-                isWide
-                  ? "h-0 w-0 border-y-8 border-l-8 border-y-transparent border-l-musubi-maroon"
-                  : "h-0 w-0 border-x-8 border-t-8 border-x-transparent border-t-musubi-maroon"
-              }
-            />
+            <span className="h-0 w-0 border-x-8 border-t-8 border-x-transparent border-t-musubi-maroon" />
           </div>
 
           {MENU_ITEMS.map((item, index) => {
             const diff = ringDiff(index, selectedIndex, MENU_ITEMS.length);
-            const baseAngle = isMobile ? -90 : isWide ? 180 : -90;
-            const angleDeg = baseAngle + diff * ANGLE_STEP;
+            const angleDeg = -90 + diff * ANGLE_STEP;
             const rad = (angleDeg * Math.PI) / 180;
             const x = radius * Math.cos(rad);
             const y = radius * Math.sin(rad);
             const isSelected = diff === 0;
-            // On mobile only the upper semicircle (y <= 0) is shown, so the
-            // lower half stays free for the big selected-item image below.
-            // On wide desktop only the left semicircle (x <= 0) is shown,
-            // facing the panel, so the wheel doesn't sprawl rightward.
-            const hidden = (isMobile && y > 4) || (isWide && x > 4);
+            // Only the upper semicircle (y <= 0) is shown on mobile and wide
+            // desktop, so the freed space below can hold the image/cart.
+            const hidden = isHalfWheel && y > 4;
 
             return (
               <button
@@ -255,8 +232,8 @@ export default function MusubiWheel() {
                 tabIndex={isSelected ? 0 : -1}
                 onClick={() => selectIndex(index)}
                 style={{
-                  top: isMobile ? "100%" : "50%",
-                  left: isWide ? "100%" : "50%",
+                  top: isHalfWheel ? "100%" : "50%",
+                  left: "50%",
                   transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`,
                 }}
                 className={`absolute flex flex-col items-center gap-1.5 rounded-lg transition-all duration-500 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-musubi-maroon focus-visible:ring-offset-2 ${
@@ -296,34 +273,35 @@ export default function MusubiWheel() {
             <ImageIcon className="h-24 w-24 text-musubi-maroon/70" aria-hidden />
           </div>
         )}
-      </div>
 
-      {isWide && cartCount > 0 && (
-        <div className="w-full max-w-[220px] rounded-lg border border-musubi-maroon/20 bg-white/70 p-3 text-left text-sm text-musubi-brown">
-          <p className="mb-1.5 font-league text-xs uppercase tracking-wide text-musubi-brown/70">
-            Your order
-          </p>
-          <ul className="flex flex-col gap-1">
-            {cartItems.map((item) => (
-              <li
-                key={item.id}
-                className="flex items-baseline justify-between gap-2"
-              >
-                <span className="truncate">
-                  {item.quantity}x {item.name}
-                </span>
-                <span className="shrink-0">
-                  {currency(item.price * item.quantity)}
-                </span>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-2 flex justify-between border-t border-musubi-maroon/20 pt-1.5 font-semibold text-musubi-maroon">
-            <span>Total</span>
-            <span>{currency(total)}</span>
-          </p>
-        </div>
-      )}
+        {/* Small cart summary, shown in the space freed up below the
+            half-wheel on wide desktop. */}
+        {isWide && cartCount > 0 && (
+          <div className="mt-4 w-full max-w-[280px] rounded-lg border border-musubi-maroon/20 bg-white/70 p-3 text-left text-sm text-musubi-brown">
+            <p className="mb-1.5 font-league text-xs uppercase tracking-wide text-musubi-brown/70">
+              Your order
+            </p>
+            <ul className="flex flex-col gap-1">
+              {cartItems.map((item) => (
+                <li
+                  key={item.id}
+                  className="flex items-baseline justify-between gap-2"
+                >
+                  <span className="truncate">
+                    {item.quantity}x {item.name}
+                  </span>
+                  <span className="shrink-0">
+                    {currency(item.price * item.quantity)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 flex justify-between border-t border-musubi-maroon/20 pt-1.5 font-semibold text-musubi-maroon">
+              <span>Total</span>
+              <span>{currency(total)}</span>
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );
