@@ -1,308 +1,296 @@
-"use client";
+'use client';
 
-import { useEffect, useRef, useState } from "react";
-import { Image as ImageIcon, Minus, Plus } from "lucide-react";
-import { MENU_ITEMS, currency } from "../menu-data";
-import { useCart } from "../cart-context";
+import React, { useState } from 'react';
+import { motion, AnimatePresence, PanInfo } from 'framer-motion';
+import { ShoppingCart, Plus, Minus } from 'lucide-react';
 
-const ANGLE_STEP = 360 / MENU_ITEMS.length;
-const SCROLL_COOLDOWN_MS = 220;
-
-/** Shortest signed distance (in item-steps) from `selected` to `index` on the ring. */
-function ringDiff(index: number, selected: number, length: number) {
-  let diff = index - selected;
-  const half = length / 2;
-  while (diff > half) diff -= length;
-  while (diff <= -half) diff += length;
-  return diff;
+// --- Types ---
+export interface MusubiItem {
+  id: string;
+  name: string;
+  ingredients: string;
+  price: number;
+  color: string;
 }
 
+// --- Mock Data ---
+const MUSUBI_ITEMS: MusubiItem[] = [
+  {
+    id: '1',
+    name: 'ORIGINAL',
+    ingredients: 'Grilled Spam, Seasoned Sushi Rice, Nori Wrap, Sweet Teriyaki Glaze',
+    price: 4.5,
+    color: '#E86A17',
+  },
+  {
+    id: '2',
+    name: 'SPICY MAYO',
+    ingredients: 'Crispy Spam, Sriracha Mayo, Toasted Sesame, Furikake, Nori',
+    price: 5.0,
+    color: '#D9381E',
+  },
+  {
+    id: '3',
+    name: 'EGG & SPAM',
+    ingredients: 'Tamagoyaki Fried Egg, Glazed Spam, Sushi Rice, Nori Wrap',
+    price: 5.5,
+    color: '#ECA825',
+  },
+  {
+    id: '4',
+    name: 'TERIYAKI CHICKEN',
+    ingredients: 'Pulled Teriyaki Chicken, Scallions, Rice, Toasted Nori',
+    price: 5.25,
+    color: '#8B4513',
+  },
+  {
+    id: '5',
+    name: 'KIMCHI CRUNCH',
+    ingredients: 'Spicy Kimchi, Spam, Sesame Oil, Furikake, Crispy Garlic',
+    price: 5.75,
+    color: '#C0392B',
+  },
+];
+
+// Configuration constants for geometry
+const STEP_ANGLE = 22; // Degrees between each item on the arc
+const WHEEL_SIZE = 650; // Diameter of wheel in pixels
+const RADIUS = WHEEL_SIZE / 2; // 325px
+const VISIBLE_OFFSETS = [-3, -2, -1, 0, 1, 2, 3]; // Active window of dots to render on wheel
+
 export default function MusubiWheel() {
-  const { addToCart, cartItems, cartCount, total } = useCart();
-  const [selectedIndex, setSelectedIndex] = useState(0);
-  const [pickQuantity, setPickQuantity] = useState(1);
-  const [radius, setRadius] = useState(170);
-  const [isMobile, setIsMobile] = useState(false);
-  const [isWide, setIsWide] = useState(false);
-  const [justAdded, setJustAdded] = useState(false);
+  // Continuous unbounded index allowing infinite rotation (e.g. -2, -1, 0, 1, 2, 3...)
+  const [rotationIndex, setRotationIndex] = useState<number>(0);
+  const [quantities, setQuantities] = useState<Record<string, number>>({
+    '1': 1, '2': 1, '3': 1, '4': 1, '5': 1,
+  });
+  const [cartCount, setCartCount] = useState<number>(2);
+  const [direction, setDirection] = useState<number>(0);
 
-  const lastStepAtRef = useRef(0);
-  const wheelRef = useRef<HTMLDivElement>(null);
-  const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
-  const selected = MENU_ITEMS[selectedIndex];
-  // Mobile and wide desktop both render a half-wheel dome anchored to the
-  // bottom of its box; only the mid-size (tablet) layout keeps a full ring.
-  const isHalfWheel = isMobile || isWide;
-
-  useEffect(() => {
-    const update = () => {
-      const width = window.innerWidth;
-      const mobile = width < 640;
-      setIsMobile(mobile);
-      setIsWide(width >= 1024);
-      setRadius(mobile ? 110 : 170);
-    };
-    update();
-    window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
-  }, []);
-
-  useEffect(() => {
-    if (!justAdded) return;
-    const timeout = setTimeout(() => setJustAdded(false), 1500);
-    return () => clearTimeout(timeout);
-  }, [justAdded]);
-
-  const selectIndex = (index: number) => {
-    setSelectedIndex(index);
-    setPickQuantity(1);
+  // Helper to map unbounded rotationIndex to valid 0-4 array index
+  const getModuloIndex = (index: number) => {
+    const len = MUSUBI_ITEMS.length;
+    return ((index % len) + len) % len;
   };
 
-  const step = (direction: 1 | -1) => {
-    setSelectedIndex(
-      (prev) => (prev + direction + MENU_ITEMS.length) % MENU_ITEMS.length,
-    );
-    setPickQuantity(1);
+  const activeItemIndex = getModuloIndex(rotationIndex);
+  const activeItem = MUSUBI_ITEMS[activeItemIndex];
+  const currentQty = quantities[activeItem.id] || 1;
+
+  // Rotation angle for the wheel container
+  const wheelRotation = -rotationIndex * STEP_ANGLE;
+
+  // Navigation Handlers (Infinite)
+  const handleNext = () => {
+    setDirection(1);
+    setRotationIndex((prev) => prev + 1);
   };
 
-  // React attaches wheel listeners as passive by default, which silently
-  // ignores preventDefault — so this needs a real DOM listener to stop the
-  // page from scrolling while the wheel is being spun.
-  useEffect(() => {
-    const el = wheelRef.current;
-    if (!el) return;
-    const handler = (e: WheelEvent) => {
-      e.preventDefault();
-      if (Math.abs(e.deltaY) < 8) return;
-      const now = Date.now();
-      if (now - lastStepAtRef.current < SCROLL_COOLDOWN_MS) return;
-      lastStepAtRef.current = now;
-      step(e.deltaY > 0 ? 1 : -1);
-    };
-    el.addEventListener("wheel", handler, { passive: false });
-    return () => el.removeEventListener("wheel", handler);
-  }, []);
+  const handlePrev = () => {
+    setDirection(-1);
+    setRotationIndex((prev) => prev - 1);
+  };
 
-  // Roving-tabindex radiogroup: arrow keys move both selection and focus,
-  // matching how a native <input type="radio"> group behaves.
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    let nextIndex: number | null = null;
-    if (e.key === "ArrowDown" || e.key === "ArrowRight") {
-      e.preventDefault();
-      nextIndex = (selectedIndex + 1) % MENU_ITEMS.length;
-    } else if (e.key === "ArrowUp" || e.key === "ArrowLeft") {
-      e.preventDefault();
-      nextIndex = (selectedIndex - 1 + MENU_ITEMS.length) % MENU_ITEMS.length;
-    }
-    if (nextIndex !== null) {
-      selectIndex(nextIndex);
-      itemRefs.current[nextIndex]?.focus();
+  const handleSelectVirtual = (targetVirtualIndex: number) => {
+    setDirection(targetVirtualIndex > rotationIndex ? 1 : -1);
+    setRotationIndex(targetVirtualIndex);
+  };
+
+  // Drag swipe handler
+  const handleDragEnd = (_: unknown, info: PanInfo) => {
+    const threshold = 35;
+    if (info.offset.x < -threshold) {
+      handleNext();
+    } else if (info.offset.x > threshold) {
+      handlePrev();
     }
   };
 
-  const handleAdd = () => {
-    addToCart(selected.id, pickQuantity);
-    setJustAdded(true);
+  // Quantity control
+  const updateQuantity = (delta: number) => {
+    setQuantities((prev) => ({
+      ...prev,
+      [activeItem.id]: Math.max(1, (prev[activeItem.id] || 1) + delta),
+    }));
+  };
+
+  // Animation variants for central display transition
+  const imageVariants = {
+    enter: (dir: number) => ({
+      rotate: dir > 0 ? 30 : -30,
+      x: dir > 0 ? 100 : -100,
+      opacity: 0,
+      scale: 0.85,
+    }),
+    center: {
+      rotate: 0,
+      x: 0,
+      opacity: 1,
+      scale: 1,
+      transition: { type: 'spring', stiffness: 240, damping: 22 },
+    },
+    exit: (dir: number) => ({
+      rotate: dir < 0 ? 30 : -30,
+      x: dir < 0 ? 100 : -100,
+      opacity: 0,
+      scale: 0.85,
+      transition: { duration: 0.18 },
+    }),
   };
 
   return (
-    <div className="grid w-full grid-cols-1 gap-10 lg:grid-cols-[360px_1fr] lg:items-center">
-      {/* Selected item panel */}
-      <div className="flex flex-col gap-6 sm:gap-2" aria-live="polite" aria-atomic="true">
-        <div className="flex justify-center">
-          <ImageIcon className="h-120 w-120 text-musubi-maroon/70" aria-hidden />
+    <div className="relative w-full h-screen bg-[#FFF8E7] text-[#F1811F] flex flex-col justify-between p-6 overflow-hidden select-none font-sans">
+      
+      {/* --- TOP HEADER --- */}
+      <header className="flex justify-between items-center w-full max-w-md mx-auto z-20">
+        <div className="text-black font-extrabold px-6 py-4 tracking-wider text-xl flex items-center justify-center">
+          LOGO
         </div>
-        <h2 className="font-dela text-2xl text-musubi-maroon">
-          {selected.name}
-        </h2>
-        <p className="text-sm text-musubi-brown/80 w-full line-clamp-2 sm:text-base sm:line-clamp-none">
-          {selected.description}
-        </p>
-        <p className="font-semibold text-musubi-maroon sm:mt-1">
-          {currency(selected.price)}
-        </p>
 
-        <div className="mt-2 flex w-full items-center gap-3 sm:mt-4">
-          <div className="flex items-center rounded-md border border-musubi-maroon/40">
-            <button
-              type="button"
-              onClick={() => setPickQuantity((q) => Math.max(1, q - 1))}
-              className="p-2 text-musubi-maroon focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-musubi-maroon"
-              aria-label="Decrease quantity"
-            >
-              <Minus className="h-4 w-4" />
-            </button>
-            <span className="w-8 text-center text-musubi-brown" aria-live="polite">
-              {pickQuantity}
-            </span>
-            <button
-              type="button"
-              onClick={() => setPickQuantity((q) => q + 1)}
-              className="p-2 text-musubi-maroon focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-musubi-maroon"
-              aria-label="Increase quantity"
-            >
-              <Plus className="h-4 w-4" />
-            </button>
-          </div>
-          <button
-            type="button"
-            onClick={handleAdd}
-            className="flex-1 rounded-md bg-musubi-maroon p-2.5 font-league text-base text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-musubi-maroon focus-visible:ring-offset-2"
-          >
-            {justAdded ? "Added!" : "Add to Order"}
-          </button>
-        </div>
-        <p className="mt-2 hidden text-xs text-musubi-brown/80 sm:block">
-          Scroll, use arrow keys, or click a musubi to browse.
-        </p>
-      </div>
-
-      {/* The wheel */}
-      <div className="flex flex-col items-center lg:items-start">
-        <div
-          ref={wheelRef}
-          role="radiogroup"
-          aria-label="Choose a musubi"
-          onKeyDown={handleKeyDown}
-          className={`relative w-full max-w-[440px] ${
-            isMobile
-              ? "h-[230px] mx-auto"
-              : "h-[340px] mx-auto sm:h-[420px] lg:h-[320px] lg:mx-0"
-          }`}
+        <button 
+          onClick={() => setCartCount(prev => prev + currentQty)}
+          className="relative p-2 focus:outline-none hover:scale-105 transition-transform"
         >
-          {/* decorative ring — a half dome anchored to the bottom on mobile
-              and wide desktop, a full ring on tablet-stacked layouts */}
-          <div
-            aria-hidden="true"
-            className={
-              isHalfWheel
-                ? "pointer-events-none absolute left-1/2 top-full rounded-t-full border-x border-t border-dashed border-musubi-maroon/15"
-                : "pointer-events-none absolute left-1/2 top-1/2 rounded-full border border-dashed border-musubi-maroon/15"
-            }
-            style={
-              isHalfWheel
-                ? {
-                    width: radius * 2,
-                    height: radius,
-                    transform: "translate(-50%, -100%)",
-                  }
-                : {
-                    width: radius * 2,
-                    height: radius * 2,
-                    transform: "translate(-50%, -50%)",
-                  }
-            }
-          />
+          <ShoppingCart className="w-12 h-12 stroke-[2.5] text-[#F1811F]" />
+          {cartCount > 0 && (
+            <span className="absolute top-1 right-2 font-black text-lg text-[#F1811F]">
+              {cartCount}
+            </span>
+          )}
+        </button>
+      </header>
 
-          {/* pointer marking the selected slot */}
-          <div
-            aria-hidden="true"
-            className="pointer-events-none absolute left-1/2 flex flex-col items-center text-musubi-maroon"
-            style={{
-              top: isHalfWheel
-                ? `calc(100% - ${radius + 100}px)`
-                : `calc(50% - ${radius + 100}px)`,
-              transform: "translate(-50%, 0)",
-            }}
-          >
-            <span className="h-0 w-0 border-x-8 border-t-8 border-x-transparent border-t-musubi-maroon" />
-          </div>
+      {/* --- CENTER CAROUSEL SHOWCASE --- */}
+      <main className="flex-1 flex flex-col items-center justify-center z-10 my-2">
+        <motion.div
+          drag="x"
+          dragConstraints={{ left: 0, right: 0 }}
+          dragElastic={0.15}
+          onDragEnd={handleDragEnd}
+          className="w-full max-w-sm flex flex-col items-center cursor-grab active:cursor-grabbing touch-none"
+        >
+          <AnimatePresence initial={false} custom={direction} mode="wait">
+            <motion.div
+              key={rotationIndex}
+              custom={direction}
+              variants={imageVariants}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              className="flex flex-col items-center w-full"
+            >
+              {/* Custom SVG Image Placeholder */}
+              <div className="w-64 h-64 sm:w-72 sm:h-72 flex items-center justify-center relative mb-4">
+                <svg
+                  width="100%"
+                  height="100%"
+                  viewBox="0 0 465 465"
+                  fill="none"
+                  xmlns="http://www.w3.org/2000/svg"
+                  className="drop-shadow-sm"
+                >
+                  <path
+                    d="M15.0105 169.156C18.6668 261.405 5.74489 264.677 7.6979 295.571C9.65092 326.466 18.6674 346.821 18.6667 374.154C47.9182 401.487 68.1097 398.381 106.419 411.737C161.263 411.737 186.857 445.903 285.575 452.736M453.765 76.907L450.109 189.656C450.109 189.656 453.234 199.954 453.765 206.739C454.606 217.468 450.109 234.072 450.109 234.072M457.422 271.655C457.422 271.655 458.753 313.393 450.109 333.154C441.465 352.915 406.234 384.404 406.234 384.404C406.234 384.404 307.722 501.763 296.545 439.07C294.434 427.224 296.545 404.903 296.545 404.903M285.577 254.572V298.988C285.577 298.988 281.932 328.454 285.577 346.821C287.472 356.372 292.89 370.737 292.89 370.737M124.7 63.239C124.7 63.239 146.638 56.4068 168.576 66.6562C199.371 81.044 196.057 73.7955 230.001 79.1833C265.099 84.7542 278.264 80.3236 311.17 87.1569C354.297 96.1125 391.609 107.655 391.609 107.655M369.671 141.824L270.951 227.239C270.951 227.239 15.0117 169.157 15.0117 155.49C51.5745 114.49 110.075 66.6571 161.263 8.57516C179.644 6.15605 208.795 8.57516 208.795 8.57516M380.64 131.574C398.921 100.824 457.422 66.6579 442.797 49.5747C369.671 35.9082 322.139 18.825 249.014 22.2417"
+                    stroke="#F1811F"
+                    strokeWidth="15"
+                    strokeLinecap="round"
+                  />
+                </svg>
+              </div>
 
-          {MENU_ITEMS.map((item, index) => {
-            const diff = ringDiff(index, selectedIndex, MENU_ITEMS.length);
-            const angleDeg = -90 + diff * ANGLE_STEP;
-            const rad = (angleDeg * Math.PI) / 180;
-            const x = radius * Math.cos(rad);
-            const y = radius * Math.sin(rad);
-            const isSelected = diff === 0;
-            // Only the upper semicircle (y <= 0) is shown on mobile and wide
-            // desktop, so the freed space below can hold the image/cart.
-            const hidden = isHalfWheel && y > 4;
+              {/* Item Name */}
+              <h2 className="text-3xl sm:text-4xl font-black tracking-wider uppercase mb-2 text-center">
+                {activeItem.name}
+              </h2>
+
+              {/* Ingredients */}
+              <p className="text-center lowercase text-xs sm:text-sm font-semibold text-[#F1811F]/80 max-w-xs leading-relaxed mb-5 px-4">
+                {activeItem.ingredients}
+              </p>
+
+              {/* Quantity Grid (+ [QTY] -) */}
+              <div className="grid grid-cols-3 items-center border-4 border-[#F1811F] rounded-full w-48 h-12 px-2 shadow-sm bg-[#FFF8E7]">
+                <button
+                  onClick={() => updateQuantity(1)}
+                  className="flex items-center justify-center text-[#F1811F] hover:scale-110 active:scale-95 transition-transform"
+                >
+                  <Plus className="w-6 h-6 stroke-[3]" />
+                </button>
+                <span className="text-center font-black text-xl text-[#F1811F]">
+                  {currentQty}
+                </span>
+                <button
+                  onClick={() => updateQuantity(-1)}
+                  className="flex items-center justify-center text-[#F1811F] hover:scale-110 active:scale-95 transition-transform"
+                >
+                  <Minus className="w-6 h-6 stroke-[3]" />
+                </button>
+              </div>
+            </motion.div>
+          </AnimatePresence>
+        </motion.div>
+      </main>
+
+      {/* --- INFINITE ROTATING STEERING WHEEL --- */}
+      <footer className="relative w-full flex items-center justify-center h-48 overflow-hidden">
+        {/*
+          Perfect 1:1 Circle Container centered absolutely via transform.
+          Pivot point is explicitly 'center center'.
+        */}
+        <motion.div
+          animate={{ rotate: wheelRotation }}
+          transition={{ type: 'spring', stiffness: 200, damping: 24 }}
+          style={{
+            width: `${WHEEL_SIZE}px`,
+            height: `${WHEEL_SIZE}px`,
+            transformOrigin: 'center center',
+          }}
+          className="absolute top-12 left-1/2 -translate-x-1/2 rounded-full border-4 border-[#F1811F] flex-shrink-0"
+        >
+          {/* Render active window of dots along the perimeter using polar coordinates */}
+          {VISIBLE_OFFSETS.map((offset) => {
+            const virtualIndex = rotationIndex + offset;
+            const itemIndex = getModuloIndex(virtualIndex);
+            const item = MUSUBI_ITEMS[itemIndex];
+
+            // Angle on the circle for this virtual dot
+            const angleDeg = virtualIndex * STEP_ANGLE;
+            const angleRad = (angleDeg * Math.PI) / 180;
+
+            // Trigonometric positioning (0 deg is top center)
+            const x = RADIUS + RADIUS * Math.sin(angleRad);
+            const y = RADIUS - RADIUS * Math.cos(angleRad);
+
+            const isActive = offset === 0;
 
             return (
-              <button
-                key={item.id}
-                ref={(el) => {
-                  itemRefs.current[index] = el;
-                }}
-                type="button"
-                role="radio"
-                aria-checked={isSelected}
-                aria-label={item.name}
-                tabIndex={isSelected ? 0 : -1}
-                onClick={() => selectIndex(index)}
+              <div
+                key={virtualIndex}
+                className="absolute pointer-events-auto"
                 style={{
-                  top: isHalfWheel ? "100%" : "50%",
-                  left: "50%",
-                  transform: `translate(calc(-50% + ${x}px), calc(-50% + ${y}px))`,
+                  left: `${x}px`,
+                  top: `${y}px`,
+                  transform: 'translate(-50%, -50%)',
                 }}
-                className={`absolute flex flex-col items-center gap-1.5 rounded-lg transition-all duration-500 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-musubi-maroon focus-visible:ring-offset-2 ${
-                  hidden ? "opacity-0 pointer-events-none" : "opacity-100"
-                }`}
               >
-                <span
-                  className={`flex items-center justify-center rounded-full border-2 transition-all duration-500 ${
-                    isSelected
-                      ? "h-28 w-28 border-musubi-maroon bg-musubi-gold/20 text-musubi-maroon shadow-md sm:h-32 sm:w-32"
-                      : "h-16 w-16 border-dashed border-musubi-maroon/25 bg-white text-musubi-brown/40 sm:h-20 sm:w-20"
+                <button
+                  onClick={() => handleSelectVirtual(virtualIndex)}
+                  aria-label={`Select ${item.name}`}
+                  className={`w-11 h-11 sm:w-12 sm:h-12 rounded-full transition-all duration-300 flex items-center justify-center shadow-md ${
+                    isActive
+                      ? 'bg-[#F1811F] scale-125 ring-4 ring-[#FFF8E7]'
+                      : 'bg-[#D9D9D9] hover:bg-[#c2c2c2] hover:scale-105'
                   }`}
                 >
-                  <ImageIcon
-                    className={isSelected ? "h-7 w-7" : "h-5 w-5"}
-                    aria-hidden
-                  />
-                </span>
-                <span
-                  className={`whitespace-nowrap font-league ${
-                    isSelected
-                      ? "text-sm text-musubi-maroon"
-                      : "text-xs text-musubi-brown/80"
-                  }`}
-                >
-                  {item.name}
-                </span>
-              </button>
+                  {isActive && (
+                    <div className="w-4 h-4 rounded-full bg-[#FFF8E7]" />
+                  )}
+                </button>
+              </div>
             );
           })}
-        </div>
-
-        {/* Big centered image of the selected musubi, shown in the space
-            freed up by the half-circle on mobile. */}
-        {isMobile && (
-          <div className="mt-2 flex flex-col items-center">
-            <ImageIcon className="h-24 w-24 text-musubi-maroon/70" aria-hidden />
-          </div>
-        )}
-
-        {/* Small cart summary, shown in the space freed up below the
-            half-wheel on wide desktop. */}
-        {isWide && cartCount > 0 && (
-          <div className="mt-4 w-full max-w-[280px] rounded-lg border border-musubi-maroon/20 bg-white/70 p-3 text-left text-sm text-musubi-brown">
-            <p className="mb-1.5 font-league text-xs uppercase tracking-wide text-musubi-brown/70">
-              Your order
-            </p>
-            <ul className="flex flex-col gap-1">
-              {cartItems.map((item) => (
-                <li
-                  key={item.id}
-                  className="flex items-baseline justify-between gap-2"
-                >
-                  <span className="truncate">
-                    {item.quantity}x {item.name}
-                  </span>
-                  <span className="shrink-0">
-                    {currency(item.price * item.quantity)}
-                  </span>
-                </li>
-              ))}
-            </ul>
-            <p className="mt-2 flex justify-between border-t border-musubi-maroon/20 pt-1.5 font-semibold text-musubi-maroon">
-              <span>Total</span>
-              <span>{currency(total)}</span>
-            </p>
-          </div>
-        )}
-      </div>
+        </motion.div>
+      </footer>
     </div>
   );
 }
